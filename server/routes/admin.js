@@ -10,9 +10,9 @@ const { auth, requireAdmin } = require('../middleware/auth');
 
 const router = express.Router();
 
-// Configure multer for CSV upload
+// Configure multer for CSV upload (using memory storage for Vercel)
 const upload = multer({
-  dest: 'uploads/',
+  storage: multer.memoryStorage(),
   fileFilter: (req, file, cb) => {
     if (file.mimetype === 'text/csv' || file.originalname.endsWith('.csv')) {
       cb(null, true);
