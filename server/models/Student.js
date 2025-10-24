@@ -1,5 +1,5 @@
 const mongoose = require('mongoose');
-const { v4: uuidv4 } = require('uuid');
+const { v4: uuidv4 } = require('uuid/v4');
 
 const studentSchema = new mongoose.Schema({
   name: {

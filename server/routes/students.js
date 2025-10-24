@@ -34,7 +34,7 @@ router.get('/my-qr-code', auth, requireStudent, async (req, res) => {
     // Ensure QR code exists
     if (!student.qrCode) {
       console.log('🔄 Generating QR code for student:', student.name);
-      student.qrCode = require('uuid').v4();
+      student.qrCode = require('uuid/v4')();
       await student.save();
     }
 
