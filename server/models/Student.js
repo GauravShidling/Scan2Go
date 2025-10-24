@@ -1,5 +1,5 @@
 const mongoose = require('mongoose');
-const { v4: uuidv4 } = require('uuid/v4');
+const crypto = require('crypto');
 
 const studentSchema = new mongoose.Schema({
   name: {
@@ -77,7 +77,7 @@ studentSchema.pre('save', function(next) {
 // Generate QR code when student is created
 studentSchema.pre('save', function(next) {
   if (this.isNew && !this.qrCode) {
-    this.qrCode = uuidv4();
+    this.qrCode = crypto.randomUUID();
   }
   next();
 });
