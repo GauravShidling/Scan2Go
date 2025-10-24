@@ -23,8 +23,10 @@ app.use(limiter);
 // CORS configuration
 const allowedOrigins = process.env.NODE_ENV === 'production' 
   ? [
-      'https://scan2go-frontend.vercel.app', // Replace with your actual frontend URL
-      'https://scan2go.vercel.app' // Replace with your actual frontend URL
+      'https://scan2go-frontend.vercel.app',
+      'https://scan2go.vercel.app',
+      'https://scan2go-client.vercel.app',
+      'https://scan2go-server.vercel.app'
     ]
   : /^http:\/\/localhost:\d+$/;
 
