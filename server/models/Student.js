@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { v4: uuidv4 } = require('uuid');
 
 const studentSchema = new mongoose.Schema({
   name: {
@@ -21,7 +22,6 @@ const studentSchema = new mongoose.Schema({
   rollNumber: {
     type: String,
     required: true,
-    unique: true,
     trim: true
   },
   vendor: {
@@ -77,7 +77,7 @@ studentSchema.pre('save', function(next) {
 // Generate QR code when student is created
 studentSchema.pre('save', function(next) {
   if (this.isNew && !this.qrCode) {
-    this.qrCode = `STU_${this.rollNumber}_${Date.now()}`;
+    this.qrCode = uuidv4();
   }
   next();
 });

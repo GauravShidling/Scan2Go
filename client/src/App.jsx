@@ -12,6 +12,7 @@ import StudentVerification from './pages/StudentVerification';
 import VendorDashboard from './pages/VendorDashboard';
 import AdminPanel from './pages/AdminPanel';
 import StudentList from './pages/StudentList';
+import MyQRCode from './pages/MyQRCode';
 import LoadingSpinner from './components/LoadingSpinner';
 
 // Protected Route Component
@@ -122,6 +123,14 @@ function App() {
                 element={
                   <ProtectedRoute requiredRoles={['admin']}>
                     <StudentList />
+                  </ProtectedRoute>
+                } 
+              />
+              <Route 
+                path="my-qr-code" 
+                element={
+                  <ProtectedRoute requiredRoles={['student']}>
+                    <MyQRCode />
                   </ProtectedRoute>
                 } 
               />

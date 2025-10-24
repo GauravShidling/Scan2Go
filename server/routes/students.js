@@ -1,8 +1,81 @@
 const express = require('express');
 const Student = require('../models/Student');
-const { auth, requireStudent } = require('../middleware/auth');
+const Vendor = require('../models/Vendor');
+const { auth, requireStudent, requireAdmin } = require('../middleware/auth');
+const QRCode = require('qrcode');
 
 const router = express.Router();
+
+// Get student's QR code (for students to view their own QR) - MUST BE FIRST
+router.get('/my-qr-code', auth, requireStudent, async (req, res) => {
+  try {
+    console.log('🔍 QR Code Request - User:', req.user.email);
+    
+          const student = await Student.findOne({ email: req.user.email }).populate('vendor', 'name');
+          if (!student) {
+            console.log('❌ Student not found for email:', req.user.email);
+            return res.status(404).json({ 
+              message: 'You are not subscribed to any vendor. Please contact the admin to add your student record and assign you to a vendor.',
+              code: 'STUDENT_NOT_FOUND'
+            });
+          }
+
+    console.log('✅ Student found:', student.name);
+
+    // Check if student has a vendor assigned
+    if (!student.vendor) {
+      console.log('❌ Student has no vendor assigned:', student.name);
+      return res.status(404).json({ 
+        message: 'You are not subscribed to any vendor. Please contact admin to get assigned to a vendor.',
+        code: 'NO_VENDOR_ASSIGNED'
+      });
+    }
+
+    // Ensure QR code exists
+    if (!student.qrCode) {
+      console.log('🔄 Generating QR code for student:', student.name);
+      student.qrCode = require('uuid').v4();
+      await student.save();
+    }
+
+    // Generate QR code data URL
+    const qrData = {
+      studentId: student._id,
+      qrCode: student.qrCode,
+      name: student.name,
+      rollNumber: student.rollNumber,
+      vendor: student.vendor?.name || 'Unknown'
+    };
+
+    console.log('🔄 Generating QR code data URL...');
+    const qrCodeDataURL = await QRCode.toDataURL(JSON.stringify(qrData), {
+      width: 300,
+      margin: 2,
+      color: {
+        dark: '#000000',
+        light: '#FFFFFF'
+      }
+    });
+
+    console.log('✅ QR code generated successfully');
+
+    res.json({
+      qrCode: student.qrCode,
+      qrCodeDataURL,
+      student: {
+        name: student.name,
+        rollNumber: student.rollNumber,
+        vendor: student.vendor?.name || 'Unknown'
+      }
+    });
+  } catch (error) {
+    console.error('❌ QR code generation error:', error);
+    res.status(500).json({ 
+      message: 'Server error generating QR code',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
 
 // Get all students (admin only)
 router.get('/', auth, requireStudent, async (req, res) => {
@@ -11,7 +84,30 @@ router.get('/', auth, requireStudent, async (req, res) => {
     
     const query = {};
     
-    if (vendor) query.vendor = vendor;
+    // Handle vendor filter - validate ObjectId format
+    if (vendor) {
+      const mongoose = require('mongoose');
+      if (mongoose.Types.ObjectId.isValid(vendor)) {
+        query.vendor = vendor;
+      } else {
+        // If not a valid ObjectId, find vendor by name
+        const vendorDoc = await Vendor.findOne({ 
+          name: { $regex: vendor, $options: 'i' } 
+        });
+        if (vendorDoc) {
+          query.vendor = vendorDoc._id;
+        } else {
+          // If vendor not found, return empty results
+          return res.json({
+            students: [],
+            totalPages: 0,
+            currentPage: page,
+            total: 0
+          });
+        }
+      }
+    }
+    
     if (active !== undefined) query.isActive = active === 'true';
     if (search) {
       query.$or = [
@@ -148,6 +244,101 @@ router.get('/:id/meals', auth, async (req, res) => {
   } catch (error) {
     console.error('Get student meals error:', error);
     res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Clean up invalid vendor references
+router.post('/cleanup-vendors', auth, requireAdmin, async (req, res) => {
+  try {
+    const mongoose = require('mongoose');
+    
+    // Find students with invalid vendor references (string instead of ObjectId)
+    const invalidStudents = await Student.find({
+      vendor: { $type: 'string' }
+    });
+    
+    let fixed = 0;
+    let failed = 0;
+    const errors = [];
+    
+    for (const student of invalidStudents) {
+      try {
+        // Find the correct vendor by name
+        const vendor = await Vendor.findOne({ 
+          name: { $regex: student.vendor, $options: 'i' } 
+        });
+        
+        if (vendor) {
+          student.vendor = vendor._id;
+          await student.save();
+          fixed++;
+          console.log(`Fixed student: ${student.name}, vendor: ${student.vendor} -> ${vendor.name}`);
+        } else {
+          console.log(`Could not find vendor for student: ${student.name}, vendor: ${student.vendor}`);
+          failed++;
+          errors.push(`Could not find vendor for student: ${student.name}`);
+        }
+      } catch (error) {
+        console.error(`Error fixing student ${student.name}:`, error);
+        failed++;
+        errors.push(`Error fixing student ${student.name}: ${error.message}`);
+      }
+    }
+    
+    res.json({
+      message: 'Vendor cleanup completed',
+      totalInvalid: invalidStudents.length,
+      fixed,
+      failed,
+      errors: errors.slice(0, 10) // Return first 10 errors
+    });
+  } catch (error) {
+    console.error('Cleanup vendors error:', error);
+    res.status(500).json({ message: 'Server error during cleanup' });
+  }
+});
+
+// Generate QR code for student
+router.get('/qr-code/:id', auth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // Find student
+    const student = await Student.findById(id).populate('vendor', 'name');
+    if (!student) {
+      return res.status(404).json({ message: 'Student not found' });
+    }
+
+    // Generate QR code data URL
+    const qrData = {
+      studentId: student._id,
+      qrCode: student.qrCode,
+      name: student.name,
+      rollNumber: student.rollNumber,
+      vendor: student.vendor.name
+    };
+
+    const qrCodeDataURL = await QRCode.toDataURL(JSON.stringify(qrData), {
+      width: 300,
+      margin: 2,
+      color: {
+        dark: '#000000',
+        light: '#FFFFFF'
+      }
+    });
+
+    res.json({
+      qrCode: student.qrCode,
+      qrCodeDataURL,
+      student: {
+        name: student.name,
+        rollNumber: student.rollNumber,
+        vendor: student.vendor.name
+      }
+    });
+  } catch (error) {
+    console.error('QR code generation error:', error);
+    res.status(500).json({ message: 'Server error generating QR code' });
   }
 });
 

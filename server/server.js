@@ -12,10 +12,11 @@ const app = express();
 app.use(helmet());
 app.use(morgan('combined'));
 
-// Rate limiting
+// Rate limiting - more lenient for development
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100 // limit each IP to 100 requests per windowMs
+  max: process.env.NODE_ENV === 'production' ? 100 : 1000, // 1000 requests in dev, 100 in production
+  message: 'Too many requests from this IP, please try again later.'
 });
 app.use(limiter);
 

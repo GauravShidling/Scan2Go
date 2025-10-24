@@ -3,6 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { verificationAPI, vendorsAPI } from '../services/api';
 import { MagnifyingGlassIcon, QrCodeIcon } from '@heroicons/react/24/outline';
 import LoadingSpinner from '../components/LoadingSpinner';
+import QRScanner from '../components/QRScanner';
 import toast from 'react-hot-toast';
 
 const StudentVerification = () => {
@@ -12,6 +13,7 @@ const StudentVerification = () => {
   const [loading, setLoading] = useState(false);
   const [vendors, setVendors] = useState([]);
   const [selectedVendor, setSelectedVendor] = useState('');
+  const [showQRScanner, setShowQRScanner] = useState(false);
 
   useEffect(() => {
     const fetchVendors = async () => {
@@ -66,8 +68,64 @@ const StudentVerification = () => {
   };
 
   const handleQRScan = () => {
-    // This would integrate with a QR code scanner
-    toast.info('QR code scanning feature coming soon!');
+    console.log('QR Scan button clicked');
+    if (!selectedVendor) {
+      toast.error('Please select a vendor first');
+      return;
+    }
+    console.log('Opening QR Scanner...');
+    setShowQRScanner(true);
+  };
+
+  const handleQRCodeScanned = async (qrData) => {
+    try {
+      setShowQRScanner(false);
+      
+      // Parse QR code data
+      let identifier;
+      try {
+        const parsedData = JSON.parse(qrData);
+        identifier = parsedData.qrCode || parsedData.studentId || qrData;
+      } catch {
+        // If not JSON, use the raw data as identifier
+        identifier = qrData;
+      }
+
+      console.log('QR Code scanned:', identifier);
+      
+      // Use the scanned identifier for verification
+      setSearchQuery(identifier);
+      
+      // Automatically trigger verification
+      setLoading(true);
+      setVerificationResult(null);
+
+      const response = await verificationAPI.verify({
+        identifier: identifier,
+        vendorId: selectedVendor
+      });
+
+      setVerificationResult(response.data);
+      
+      if (response.data.verified) {
+        toast.success('Student verified successfully!');
+      } else {
+        toast.error(response.data.message);
+      }
+    } catch (error) {
+      const message = error.response?.data?.message || 'Verification failed';
+      toast.error(message);
+      setVerificationResult({
+        verified: false,
+        message: message
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCloseQRScanner = () => {
+    setShowQRScanner(false);
   };
 
   return (
@@ -119,7 +177,7 @@ const StudentVerification = () => {
                     id="search"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Enter roll number, email, or QR code"
+                    placeholder="Enter batch, email, or QR code"
                     className="block w-full px-3 py-2 pr-10 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
                   />
                   <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
@@ -127,7 +185,7 @@ const StudentVerification = () => {
                   </div>
                 </div>
                 <p className="mt-1 text-xs text-gray-500">
-                  You can search by roll number, email, or QR code
+                  You can search by batch, email, or QR code
                 </p>
               </div>
 
@@ -192,7 +250,7 @@ const StudentVerification = () => {
                       {verificationResult.student && (
                         <div className="mt-3 space-y-1">
                           <p><strong>Name:</strong> {verificationResult.student.name}</p>
-                          <p><strong>Roll Number:</strong> {verificationResult.student.rollNumber}</p>
+                          <p><strong>Batch:</strong> {verificationResult.student.rollNumber}</p>
                           <p><strong>Email:</strong> {verificationResult.student.email}</p>
                           <p><strong>Vendor:</strong> {verificationResult.student.vendor}</p>
                         </div>
@@ -219,6 +277,13 @@ const StudentVerification = () => {
           </div>
         </div>
       </div>
+
+      {/* QR Scanner Modal */}
+      <QRScanner
+        onScan={handleQRCodeScanned}
+        onClose={handleCloseQRScanner}
+        isOpen={showQRScanner}
+      />
     </div>
   );
 };

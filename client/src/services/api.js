@@ -82,4 +82,9 @@ export const adminAPI = {
   bulkDeactivate: (studentIds) => api.post('/admin/bulk-deactivate', { studentIds }),
 };
 
+export const qrAPI = {
+  getMyQRCode: () => api.get('/students/my-qr-code'),
+  getQRCode: (studentId) => api.get(`/students/qr-code/${studentId}`),
+};
+
 export default api;

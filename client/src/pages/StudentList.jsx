@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { studentsAPI } from '../services/api';
+import { studentsAPI, vendorsAPI } from '../services/api';
 import { MagnifyingGlassIcon, EyeIcon, PencilIcon, TrashIcon } from '@heroicons/react/24/outline';
 import LoadingSpinner from '../components/LoadingSpinner';
 import toast from 'react-hot-toast';
@@ -10,6 +10,7 @@ const StudentList = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedVendor, setSelectedVendor] = useState('');
   const [activeFilter, setActiveFilter] = useState('all');
+  const [vendors, setVendors] = useState([]);
   const [pagination, setPagination] = useState({
     page: 1,
     totalPages: 1,
@@ -17,8 +18,22 @@ const StudentList = () => {
   });
 
   useEffect(() => {
+    fetchVendors();
+  }, []);
+
+  useEffect(() => {
     fetchStudents();
   }, [searchQuery, selectedVendor, activeFilter, pagination.page]);
+
+  const fetchVendors = async () => {
+    try {
+      const response = await vendorsAPI.getAll();
+      setVendors(response.data.vendors);
+    } catch (error) {
+      console.error('Error fetching vendors:', error);
+      toast.error('Failed to load vendors');
+    }
+  };
 
   const fetchStudents = async () => {
     try {
@@ -105,7 +120,7 @@ const StudentList = () => {
                     id="search"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search by name, roll number, or email"
+                    placeholder="Search by name, batch, or email"
                     className="block w-full px-3 py-2 pr-10 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
                   />
                   <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
@@ -125,9 +140,11 @@ const StudentList = () => {
                   className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
                 >
                   <option value="">All Vendors</option>
-                  <option value="vendor1">Vendor 1</option>
-                  <option value="vendor2">Vendor 2</option>
-                  <option value="vendor3">Vendor 3</option>
+                  {vendors.map((vendor) => (
+                    <option key={vendor._id} value={vendor._id}>
+                      {vendor.name}
+                    </option>
+                  ))}
                 </select>
               </div>
 
@@ -182,7 +199,7 @@ const StudentList = () => {
                         Student
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Roll Number
+                        Batch
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Email

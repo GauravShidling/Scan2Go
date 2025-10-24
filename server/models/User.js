@@ -49,9 +49,7 @@ const userSchema = new mongoose.Schema({
   vendor: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Vendor',
-    required: function() {
-      return this.role === 'vendor';
-    }
+    required: false // Will be set later when vendor is created
   },
   createdAt: {
     type: Date,

@@ -12,6 +12,7 @@
   "dependencies": {
     "@heroicons/react": "^2.2.0",
     "axios": "^1.12.2",
+    "html5-qrcode": "^2.3.8",
     "qrcode.js": "^0.0.1",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",

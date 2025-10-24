@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const Student = require('../models/Student');
 const Vendor = require('../models/Vendor');
+const MealRecord = require('../models/MealRecord');
 const { auth, requireAdmin } = require('../middleware/auth');
 
 const router = express.Router();
@@ -50,60 +51,104 @@ router.post('/upload-csv', auth, requireAdmin, upload.single('csvFile'), async (
     // Process each row
     const processedStudents = [];
     const vendors = await Vendor.find({ isActive: true });
-    const vendorMap = new Map(vendors.map(v => [v.name.toLowerCase(), v._id]));
+    const vendorMap = new Map();
+    
+    // Create multiple mappings for each vendor (with and without spaces, different cases)
+    vendors.forEach(vendor => {
+      const cleanName = vendor.name.trim().toLowerCase();
+      vendorMap.set(cleanName, vendor._id);
+      // Also add without spaces for "Uniworld " -> "Uniworld" matching
+      vendorMap.set(cleanName.replace(/\s+/g, ''), vendor._id);
+    });
+
+    console.log(`📊 Processing ${results.length} rows from CSV`);
+    console.log('Available vendors:', vendors.map(v => v.name));
 
     for (let i = 0; i < results.length; i++) {
       const row = results[i];
       try {
+        // Map your headers to expected fields
+        const studentData = {
+          name: row['Full Name'],
+          email: row['Email Address'],
+          rollNumber: row['Batch'],
+          vendor: row['Vendor'],
+          vendorLocation: row['Hostel :']
+        };
+
         // Validate required fields
-        if (!row.name || !row.email || !row.rollNumber || !row.vendor) {
+        if (!studentData.name || !studentData.email || !studentData.rollNumber || !studentData.vendor) {
           errors.push(`Row ${i + 2}: Missing required fields`);
           continue;
         }
 
         // Validate email domain
-        if (!row.email.endsWith('@sst.scaler.com')) {
-          errors.push(`Row ${i + 2}: Invalid email domain for ${row.email}`);
+        if (!studentData.email.endsWith('@sst.scaler.com')) {
+          errors.push(`Row ${i + 2}: Invalid email domain for ${studentData.email}`);
           continue;
         }
 
-        // Find or create vendor
-        let vendorId = vendorMap.get(row.vendor.toLowerCase());
+        // Find or create vendor (trim whitespace for matching)
+        const cleanVendorName = studentData.vendor.trim();
+        let vendorId = vendorMap.get(cleanVendorName.toLowerCase());
+        
+        if (i < 3) { // Debug first 3 rows
+          console.log(`Row ${i + 1}: ${studentData.name} -> Vendor: "${studentData.vendor}" -> Clean: "${cleanVendorName}" -> Found: ${!!vendorId}`);
+        }
+        
         if (!vendorId) {
-          const newVendor = new Vendor({
-            name: row.vendor,
-            location: row.vendorLocation || 'TBD',
-            description: `Auto-created from CSV import`
+          // Try to find vendor by partial name match (case insensitive)
+          const existingVendor = await Vendor.findOne({
+            name: { $regex: new RegExp(cleanVendorName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') }
           });
-          await newVendor.save();
-          vendorId = newVendor._id;
-          vendorMap.set(row.vendor.toLowerCase(), vendorId);
+          
+          if (existingVendor) {
+            vendorId = existingVendor._id;
+            vendorMap.set(cleanVendorName.toLowerCase(), vendorId);
+            console.log(`✅ Found existing vendor by partial match: ${existingVendor.name}`);
+          } else {
+            const newVendor = new Vendor({
+              name: cleanVendorName,
+              location: studentData.vendorLocation || 'TBD',
+              description: `Auto-created from CSV import`
+            });
+            await newVendor.save();
+            vendorId = newVendor._id;
+            vendorMap.set(cleanVendorName.toLowerCase(), vendorId);
+            console.log(`Created new vendor: ${cleanVendorName}`);
+          }
         }
 
         // Check if student exists
         let student = await Student.findOne({ 
           $or: [
-            { email: row.email },
-            { rollNumber: row.rollNumber }
+            { email: studentData.email },
+            { rollNumber: studentData.rollNumber }
           ]
         });
 
         if (student) {
           // Update existing student
-          student.name = row.name;
+          student.name = studentData.name;
+          student.rollNumber = studentData.rollNumber;
           student.vendor = vendorId;
+          student.vendorLocation = studentData.vendorLocation || 'TBD';
           student.isActive = true;
           student.updatedAt = new Date();
           await student.save();
+          console.log(`✅ Updated student: ${student.name}`);
         } else {
           // Create new student
           student = new Student({
-            name: row.name,
-            email: row.email,
-            rollNumber: row.rollNumber,
-            vendor: vendorId
+            name: studentData.name,
+            email: studentData.email,
+            rollNumber: studentData.rollNumber,
+            vendor: vendorId,
+            vendorLocation: studentData.vendorLocation || 'TBD',
+            isActive: true
           });
           await student.save();
+          console.log(`✅ Created student: ${student.name}`);
         }
 
         processedStudents.push({
@@ -132,6 +177,39 @@ router.post('/upload-csv', auth, requireAdmin, upload.single('csvFile'), async (
       }
     );
 
+    // Clean up any students with invalid vendor references
+    try {
+      const invalidStudents = await Student.find({
+        vendor: { $type: 'string' }
+      });
+      
+      if (invalidStudents.length > 0) {
+        console.log(`Found ${invalidStudents.length} students with invalid vendor references, cleaning up...`);
+        
+        for (const student of invalidStudents) {
+          // Find the correct vendor by name
+          const vendor = await Vendor.findOne({ 
+            name: { $regex: student.vendor, $options: 'i' } 
+          });
+          
+          if (vendor) {
+            student.vendor = vendor._id;
+            await student.save();
+            console.log(`Fixed vendor reference for student: ${student.name}`);
+          } else {
+            console.log(`Could not find vendor for student: ${student.name}, vendor: ${student.vendor}`);
+          }
+        }
+      }
+    } catch (cleanupError) {
+      console.error('Error during cleanup:', cleanupError);
+    }
+
+    console.log(`✅ CSV Processing Complete:`);
+    console.log(`- Total rows: ${results.length}`);
+    console.log(`- Processed students: ${processedStudents.length}`);
+    console.log(`- Errors: ${errors.length}`);
+
     res.json({
       message: 'CSV processed successfully',
       totalRows: results.length,
@@ -144,6 +222,85 @@ router.post('/upload-csv', auth, requireAdmin, upload.single('csvFile'), async (
   } catch (error) {
     console.error('CSV upload error:', error);
     res.status(500).json({ message: 'Server error during CSV processing' });
+  }
+});
+
+// Clean up invalid vendor references
+router.post('/cleanup-vendors', auth, requireAdmin, async (req, res) => {
+  try {
+    const invalidStudents = await Student.find({
+      vendor: { $type: 'string' }
+    });
+    
+    console.log(`Found ${invalidStudents.length} students with invalid vendor references`);
+    
+    let fixed = 0;
+    let failed = 0;
+    const errors = [];
+    
+    for (const student of invalidStudents) {
+      try {
+        console.log(`Processing student: ${student.name}, vendor: ${student.vendor}`);
+        
+        // Find the correct vendor by name
+        const vendor = await Vendor.findOne({ 
+          name: { $regex: student.vendor, $options: 'i' } 
+        });
+        
+        if (vendor) {
+          student.vendor = vendor._id;
+          await student.save();
+          fixed++;
+          console.log(`✅ Fixed student: ${student.name}, vendor: ${student.vendor} -> ${vendor.name}`);
+        } else {
+          console.log(`❌ Could not find vendor for student: ${student.name}, vendor: ${student.vendor}`);
+          failed++;
+          errors.push(`Could not find vendor for student: ${student.name}`);
+        }
+      } catch (error) {
+        console.error(`❌ Error fixing student ${student.name}:`, error);
+        failed++;
+        errors.push(`Error fixing student ${student.name}: ${error.message}`);
+      }
+    }
+    
+    // Also check for any students with null/undefined vendors
+    const nullVendorStudents = await Student.find({
+      $or: [
+        { vendor: null },
+        { vendor: { $exists: false } }
+      ]
+    });
+    
+    console.log(`Found ${nullVendorStudents.length} students with null/undefined vendors`);
+    
+    for (const student of nullVendorStudents) {
+      try {
+        // Assign to first available vendor as default
+        const defaultVendor = await Vendor.findOne();
+        if (defaultVendor) {
+          student.vendor = defaultVendor._id;
+          await student.save();
+          fixed++;
+          console.log(`✅ Assigned default vendor to student: ${student.name}`);
+        }
+      } catch (error) {
+        console.error(`❌ Error assigning default vendor to student ${student.name}:`, error);
+        failed++;
+      }
+    }
+    
+    res.json({
+      message: 'Vendor cleanup completed',
+      totalInvalid: invalidStudents.length,
+      nullVendors: nullVendorStudents.length,
+      fixed,
+      failed,
+      errors: errors.slice(0, 10) // Return first 10 errors
+    });
+  } catch (error) {
+    console.error('Cleanup error:', error);
+    res.status(500).json({ message: 'Server error during cleanup' });
   }
 });
 
@@ -189,6 +346,28 @@ router.get('/stats', auth, requireAdmin, async (req, res) => {
     const totalStudents = await Student.countDocuments({ isActive: true });
     const totalVendors = await Vendor.countDocuments({ isActive: true });
     
+    // Get today's verifications (meal records claimed today)
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    
+    const todaysVerifications = await MealRecord.countDocuments({
+      claimed: true,
+      claimedAt: {
+        $gte: today,
+        $lt: tomorrow
+      }
+    });
+    
+    // Get active students (students who have claimed meals recently)
+    const activeStudents = await Student.countDocuments({
+      isActive: true,
+      lastMealClaimed: {
+        $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) // Last 7 days
+      }
+    });
+    
     // Get students by vendor
     const studentsByVendor = await Student.aggregate([
       { $match: { isActive: true } },
@@ -208,6 +387,8 @@ router.get('/stats', auth, requireAdmin, async (req, res) => {
     res.json({
       totalStudents,
       totalVendors,
+      todaysVerifications,
+      activeStudents,
       studentsByVendor,
       recentStudents
     });

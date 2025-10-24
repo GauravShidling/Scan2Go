@@ -254,8 +254,16 @@ const Dashboard = () => {
                 </h3>
                 <div className="mt-2 text-sm text-blue-700">
                   <p>1. Go to the verification counter at your assigned vendor</p>
-                  <p>2. Provide your roll number or scan your QR code</p>
+                  <p>2. Show your QR code or provide your batch</p>
                   <p>3. The vendor will verify and serve your meal</p>
+                </div>
+                <div className="mt-3">
+                  <a
+                    href="/my-qr-code"
+                    className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-blue-700 bg-blue-100 hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                  >
+                    View My QR Code
+                  </a>
                 </div>
               </div>
             </div>

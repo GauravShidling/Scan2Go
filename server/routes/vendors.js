@@ -86,6 +86,11 @@ router.get('/:id/dashboard', auth, requireVendor, async (req, res) => {
       { $count: 'total' }
     ]);
 
+    // Calculate claim rate (percentage of students who claimed meals today)
+    const totalStudents = students.length;
+    const claimedToday = todayMeals[0]?.total || 0;
+    const claimRate = totalStudents > 0 ? (claimedToday / totalStudents * 100).toFixed(1) : 0;
+
     res.json({
       vendor: {
         id: vendor._id,
@@ -93,7 +98,8 @@ router.get('/:id/dashboard', auth, requireVendor, async (req, res) => {
         location: vendor.location,
         totalStudents: students.length,
         todayMeals: todayMeals[0]?.total || 0,
-        monthlyMeals: monthlyStats[0]?.total || 0
+        monthlyMeals: monthlyStats[0]?.total || 0,
+        claimRate: parseFloat(claimRate)
       },
       students: students.map(student => ({
         id: student._id,
