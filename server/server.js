@@ -20,10 +20,15 @@ const limiter = rateLimit({
 app.use(limiter);
 
 // CORS configuration
+const allowedOrigins = process.env.NODE_ENV === 'production' 
+  ? [
+      'https://scan2go-frontend.vercel.app', // Replace with your actual frontend URL
+      'https://scan2go.vercel.app' // Replace with your actual frontend URL
+    ]
+  : /^http:\/\/localhost:\d+$/;
+
 app.use(cors({
-  origin: process.env.NODE_ENV === 'production' 
-    ? ['https://yourdomain.com'] 
-    : /^http:\/\/localhost:\d+$/,
+  origin: allowedOrigins,
   credentials: true
 }));
 
