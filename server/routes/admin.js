@@ -84,14 +84,12 @@ router.post('/upload-csv', auth, requireAdmin, upload.single('csvFile'), async (
     console.log(`📊 Parsed ${results.length} rows from CSV`);
     console.log('📋 Sample parsed data:', results.slice(0, 2));
     
-    // Debug: Check if we can find Mohammed's email
-    const mohammedRow = results.find(row => row['Email Address'] === 'mohammed.24bcs10620@sst.scaler.com');
-    if (mohammedRow) {
-      console.log('✅ Found Mohammed in CSV:', mohammedRow);
-    } else {
-      console.log('❌ Mohammed not found in CSV data');
-      console.log('📋 Available emails in CSV:', results.map(r => r['Email Address']).slice(0, 5));
-    }
+    // Debug: Check CSV parsing results
+    console.log('🔍 CSV Parsing Debug:');
+    console.log('- Total rows parsed:', results.length);
+    console.log('- First row keys:', Object.keys(results[0] || {}));
+    console.log('- Sample emails found:', results.map(r => r['Email Address']).slice(0, 5));
+    console.log('- All emails valid:', results.every(r => r['Email Address'] && r['Email Address'].includes('@')));
 
     // Process each row
     const processedStudents = [];
@@ -228,13 +226,19 @@ router.post('/upload-csv', auth, requireAdmin, upload.single('csvFile'), async (
     console.log(`📧 CSV emails to keep active:`, csvEmails.slice(0, 5));
     console.log(`📊 Total emails found in CSV: ${csvEmails.length}`);
     
-    // Check specifically for Mohammed
-    const hasMohammed = csvEmails.includes('mohammed.24bcs10620@sst.scaler.com');
-    console.log(`🔍 Mohammed in CSV emails: ${hasMohammed}`);
+    // Debug email extraction
+    console.log('🔍 Email Extraction Debug:');
+    console.log('- Raw email extraction test:', results.slice(0, 3).map(row => ({
+      raw: row['Email Address'],
+      processed: row['Email Address']?.trim()
+    })));
     
     if (csvEmails.length === 0) {
-      console.log('⚠️ No emails found in CSV - this will deactivate ALL students!');
+      console.log('⚠️ CRITICAL: No emails found in CSV - this will deactivate ALL students!');
       console.log('📋 Available row keys:', Object.keys(results[0] || {}));
+      console.log('📋 Sample row data:', results[0]);
+    } else {
+      console.log('✅ Email extraction working - students in CSV will be kept active');
     }
     
     const deactivateResult = await Student.updateMany(
