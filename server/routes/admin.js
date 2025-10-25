@@ -34,19 +34,18 @@ router.post('/upload-csv', auth, requireAdmin, upload.single('csvFile'), async (
 
     const results = [];
     const errors = [];
-    const filePath = req.file.path;
 
-    // Parse CSV file
+    // Parse CSV file from memory buffer using csv-parser
     await new Promise((resolve, reject) => {
-      fs.createReadStream(filePath)
+      const { Readable } = require('stream');
+      const csvStream = Readable.from(req.file.buffer.toString('utf8'));
+      
+      csvStream
         .pipe(csv())
         .on('data', (data) => results.push(data))
         .on('end', resolve)
         .on('error', reject);
     });
-
-    // Clean up uploaded file
-    fs.unlinkSync(filePath);
 
     // Process each row
     const processedStudents = [];
