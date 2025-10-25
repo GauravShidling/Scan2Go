@@ -182,8 +182,20 @@ router.post('/upload-csv', auth, requireAdmin, upload.single('csvFile'), async (
     }
 
     // Deactivate students not in the CSV
-    const csvEmails = results.map(row => row.email).filter(Boolean);
-    await Student.updateMany(
+    const csvEmails = results.map(row => {
+      const studentData = {
+        name: row['Full Name'],
+        email: row['Email Address'],
+        rollNumber: row['Batch'],
+        vendor: row['Vendor'],
+        vendorLocation: row['Hostel :']
+      };
+      return studentData.email;
+    }).filter(Boolean);
+    
+    console.log(`📧 CSV emails to keep active:`, csvEmails);
+    
+    const deactivateResult = await Student.updateMany(
       { 
         email: { $nin: csvEmails },
         isActive: true 
@@ -193,6 +205,8 @@ router.post('/upload-csv', auth, requireAdmin, upload.single('csvFile'), async (
         updatedAt: new Date()
       }
     );
+    
+    console.log(`❌ Deactivated ${deactivateResult.modifiedCount} students not in CSV`);
 
     // Clean up any students with invalid vendor references
     try {
@@ -222,16 +236,25 @@ router.post('/upload-csv', auth, requireAdmin, upload.single('csvFile'), async (
       console.error('Error during cleanup:', cleanupError);
     }
 
+    // Get final counts
+    const totalActiveStudents = await Student.countDocuments({ isActive: true });
+    const totalInactiveStudents = await Student.countDocuments({ isActive: false });
+    
     console.log(`✅ CSV Processing Complete:`);
-    console.log(`- Total rows: ${results.length}`);
+    console.log(`- Total CSV rows: ${results.length}`);
     console.log(`- Processed students: ${processedStudents.length}`);
     console.log(`- Errors: ${errors.length}`);
+    console.log(`- Total active students: ${totalActiveStudents}`);
+    console.log(`- Total inactive students: ${totalInactiveStudents}`);
 
     res.json({
       message: 'CSV processed successfully',
       totalRows: results.length,
       processed: processedStudents.length,
       errors: errors.length,
+      totalActiveStudents: totalActiveStudents,
+      totalInactiveStudents: totalInactiveStudents,
+      deactivatedCount: deactivateResult.modifiedCount,
       processedStudents: processedStudents.slice(0, 10), // Return first 10 for preview
       errorDetails: errors.slice(0, 10) // Return first 10 errors
     });
