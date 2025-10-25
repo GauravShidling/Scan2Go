@@ -73,10 +73,12 @@ app.use('/api/verification', require('./routes/verification'));
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
+  const dbStatus = mongoose.connection.readyState === 1 ? 'connected' : 'disconnected';
   res.json({ 
     status: 'OK', 
     timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV 
+    environment: process.env.NODE_ENV,
+    database: dbStatus
   });
 });
 
@@ -94,20 +96,23 @@ app.use((req, res) => {
   res.status(404).json({ message: 'Route not found' });
 });
 
-// Database connection
+// Database connection with better error handling
 mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/scan2go', {
-  serverSelectionTimeoutMS: 5000, // 5 seconds
+  serverSelectionTimeoutMS: 10000, // 10 seconds
   socketTimeoutMS: 45000, // 45 seconds
   maxPoolSize: 10,
   retryWrites: true,
-  w: 'majority'
+  w: 'majority',
+  bufferCommands: false, // Disable mongoose buffering
+  bufferMaxEntries: 0 // Disable mongoose buffering
 })
 .then(() => {
   console.log('✅ Connected to MongoDB');
 })
 .catch((error) => {
   console.error('❌ MongoDB connection error:', error);
-  process.exit(1);
+  console.log('⚠️  Server will continue without database connection');
+  // Don't exit the process - let the server run and handle DB errors gracefully
 });
 
 const PORT = process.env.PORT || 3001;

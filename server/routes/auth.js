@@ -9,6 +9,15 @@ const router = express.Router();
 router.post('/register', async (req, res) => {
   try {
     console.log('🔍 Registration attempt:', req.body);
+    
+    // Check database connection
+    if (require('mongoose').connection.readyState !== 1) {
+      console.log('❌ Database not connected');
+      return res.status(503).json({ 
+        message: 'Database connection unavailable. Please try again later.' 
+      });
+    }
+    
     const { name, email, password, role } = req.body;
 
     // Validate required fields
@@ -106,6 +115,14 @@ router.post('/register', async (req, res) => {
 // Login user
 router.post('/login', async (req, res) => {
   try {
+    // Check database connection
+    if (require('mongoose').connection.readyState !== 1) {
+      console.log('❌ Database not connected');
+      return res.status(503).json({ 
+        message: 'Database connection unavailable. Please try again later.' 
+      });
+    }
+    
     const { email, password } = req.body;
 
     // Validate email domain
