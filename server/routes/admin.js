@@ -35,17 +35,31 @@ router.post('/upload-csv', auth, requireAdmin, upload.single('csvFile'), async (
     const results = [];
     const errors = [];
 
-    // Parse CSV file from memory buffer using csv-parser
-    await new Promise((resolve, reject) => {
-      const { Readable } = require('stream');
-      const csvStream = Readable.from(req.file.buffer.toString('utf8'));
+    // Parse CSV file from memory buffer
+    const csvData = req.file.buffer.toString('utf8');
+    const lines = csvData.split('\n').filter(line => line.trim());
+    
+    if (lines.length === 0) {
+      return res.status(400).json({ message: 'CSV file is empty' });
+    }
+    
+    // Parse header row
+    const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
+    console.log('📋 CSV Headers:', headers);
+    
+    // Parse data rows
+    for (let i = 1; i < lines.length; i++) {
+      const values = lines[i].split(',').map(v => v.trim().replace(/"/g, ''));
+      const row = {};
       
-      csvStream
-        .pipe(csv())
-        .on('data', (data) => results.push(data))
-        .on('end', resolve)
-        .on('error', reject);
-    });
+      headers.forEach((header, index) => {
+        row[header] = values[index] || '';
+      });
+      
+      results.push(row);
+    }
+    
+    console.log(`📊 Parsed ${results.length} rows from CSV`);
 
     // Process each row
     const processedStudents = [];
@@ -66,6 +80,8 @@ router.post('/upload-csv', auth, requireAdmin, upload.single('csvFile'), async (
     for (let i = 0; i < results.length; i++) {
       const row = results[i];
       try {
+        console.log(`📝 Processing row ${i + 1}:`, row);
+        
         // Map your headers to expected fields
         const studentData = {
           name: row['Full Name'],
@@ -74,6 +90,8 @@ router.post('/upload-csv', auth, requireAdmin, upload.single('csvFile'), async (
           vendor: row['Vendor'],
           vendorLocation: row['Hostel :']
         };
+        
+        console.log(`📋 Mapped data:`, studentData);
 
         // Validate required fields
         if (!studentData.name || !studentData.email || !studentData.rollNumber || !studentData.vendor) {
