@@ -77,8 +77,11 @@ app.use((req, res) => {
 mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/scan2go', {
   useNewUrlParser: true,
   useUnifiedTopology: true,
-  serverSelectionTimeoutMS: 30000, // 30 seconds
-  socketTimeoutMS: 45000 // 45 seconds
+  serverSelectionTimeoutMS: 5000, // 5 seconds
+  socketTimeoutMS: 45000, // 45 seconds
+  maxPoolSize: 10,
+  retryWrites: true,
+  w: 'majority'
 })
 .then(() => {
   console.log('✅ Connected to MongoDB');
