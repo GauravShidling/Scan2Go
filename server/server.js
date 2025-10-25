@@ -8,6 +8,9 @@ require('dotenv').config();
 
 const app = express();
 
+// Trust proxy for Vercel
+app.set('trust proxy', 1);
+
 // Security middleware
 app.use(helmet());
 app.use(morgan('combined'));
@@ -71,7 +74,14 @@ app.use((req, res) => {
 });
 
 // Database connection
-mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/scan2go')
+mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/scan2go', {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+  serverSelectionTimeoutMS: 30000, // 30 seconds
+  socketTimeoutMS: 45000, // 45 seconds
+  bufferCommands: false,
+  bufferMaxEntries: 0
+})
 .then(() => {
   console.log('✅ Connected to MongoDB');
 })
