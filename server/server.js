@@ -97,23 +97,25 @@ app.use((req, res) => {
 });
 
 // Database connection with better error handling
-mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/scan2go', {
-  serverSelectionTimeoutMS: 10000, // 10 seconds
-  socketTimeoutMS: 45000, // 45 seconds
-  maxPoolSize: 10,
-  retryWrites: true,
-  w: 'majority',
-  bufferCommands: false, // Disable mongoose buffering
-  bufferMaxEntries: 0 // Disable mongoose buffering
-})
-.then(() => {
-  console.log('✅ Connected to MongoDB');
-})
-.catch((error) => {
-  console.error('❌ MongoDB connection error:', error);
-  console.log('⚠️  Server will continue without database connection');
-  // Don't exit the process - let the server run and handle DB errors gracefully
-});
+const connectDB = async () => {
+  try {
+    await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/scan2go', {
+      serverSelectionTimeoutMS: 30000, // 30 seconds
+      socketTimeoutMS: 45000, // 45 seconds
+      maxPoolSize: 10,
+      retryWrites: true,
+      w: 'majority'
+    });
+    console.log('✅ Connected to MongoDB');
+  } catch (error) {
+    console.error('❌ MongoDB connection error:', error);
+    console.log('⚠️  Server will continue without database connection');
+    // Don't exit the process - let the server run and handle DB errors gracefully
+  }
+};
+
+// Connect to database
+connectDB();
 
 const PORT = process.env.PORT || 3001;
 

@@ -10,12 +10,32 @@ router.post('/register', async (req, res) => {
   try {
     console.log('🔍 Registration attempt:', req.body);
     
-    // Check database connection
-    if (require('mongoose').connection.readyState !== 1) {
-      console.log('❌ Database not connected');
-      return res.status(503).json({ 
-        message: 'Database connection unavailable. Please try again later.' 
-      });
+    // Check database connection with retry
+    const mongoose = require('mongoose');
+    if (mongoose.connection.readyState !== 1) {
+      console.log('❌ Database not connected, attempting to reconnect...');
+      
+      // Try to reconnect
+      try {
+        await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/scan2go', {
+          serverSelectionTimeoutMS: 5000,
+          socketTimeoutMS: 45000,
+          maxPoolSize: 10,
+          retryWrites: true,
+          w: 'majority'
+        });
+        
+        if (mongoose.connection.readyState !== 1) {
+          return res.status(503).json({ 
+            message: 'Database connection unavailable. Please try again later.' 
+          });
+        }
+      } catch (reconnectError) {
+        console.error('❌ Reconnection failed:', reconnectError);
+        return res.status(503).json({ 
+          message: 'Database connection unavailable. Please try again later.' 
+        });
+      }
     }
     
     const { name, email, password, role } = req.body;
@@ -115,12 +135,32 @@ router.post('/register', async (req, res) => {
 // Login user
 router.post('/login', async (req, res) => {
   try {
-    // Check database connection
-    if (require('mongoose').connection.readyState !== 1) {
-      console.log('❌ Database not connected');
-      return res.status(503).json({ 
-        message: 'Database connection unavailable. Please try again later.' 
-      });
+    // Check database connection with retry
+    const mongoose = require('mongoose');
+    if (mongoose.connection.readyState !== 1) {
+      console.log('❌ Database not connected, attempting to reconnect...');
+      
+      // Try to reconnect
+      try {
+        await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/scan2go', {
+          serverSelectionTimeoutMS: 5000,
+          socketTimeoutMS: 45000,
+          maxPoolSize: 10,
+          retryWrites: true,
+          w: 'majority'
+        });
+        
+        if (mongoose.connection.readyState !== 1) {
+          return res.status(503).json({ 
+            message: 'Database connection unavailable. Please try again later.' 
+          });
+        }
+      } catch (reconnectError) {
+        console.error('❌ Reconnection failed:', reconnectError);
+        return res.status(503).json({ 
+          message: 'Database connection unavailable. Please try again later.' 
+        });
+      }
     }
     
     const { email, password } = req.body;
