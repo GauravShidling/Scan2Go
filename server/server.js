@@ -26,7 +26,8 @@ const allowedOrigins = process.env.NODE_ENV === 'production'
       'https://scan2go-frontend.vercel.app',
       'https://scan2go.vercel.app',
       'https://scan2go-client.vercel.app',
-      'https://scan2go-server.vercel.app'
+      'https://scan2go-server.vercel.app',
+      'https://scan2-go-omgh.vercel.app'
     ]
   : /^http:\/\/localhost:\d+$/;
 
