@@ -83,6 +83,15 @@ router.post('/upload-csv', auth, requireAdmin, upload.single('csvFile'), async (
     
     console.log(`📊 Parsed ${results.length} rows from CSV`);
     console.log('📋 Sample parsed data:', results.slice(0, 2));
+    
+    // Debug: Check if we can find Mohammed's email
+    const mohammedRow = results.find(row => row['Email Address'] === 'mohammed.24bcs10620@sst.scaler.com');
+    if (mohammedRow) {
+      console.log('✅ Found Mohammed in CSV:', mohammedRow);
+    } else {
+      console.log('❌ Mohammed not found in CSV data');
+      console.log('📋 Available emails in CSV:', results.map(r => r['Email Address']).slice(0, 5));
+    }
 
     // Process each row
     const processedStudents = [];
@@ -216,8 +225,12 @@ router.post('/upload-csv', auth, requireAdmin, upload.single('csvFile'), async (
       return studentData.email;
     }).filter(Boolean);
     
-    console.log(`📧 CSV emails to keep active:`, csvEmails);
+    console.log(`📧 CSV emails to keep active:`, csvEmails.slice(0, 5));
     console.log(`📊 Total emails found in CSV: ${csvEmails.length}`);
+    
+    // Check specifically for Mohammed
+    const hasMohammed = csvEmails.includes('mohammed.24bcs10620@sst.scaler.com');
+    console.log(`🔍 Mohammed in CSV emails: ${hasMohammed}`);
     
     if (csvEmails.length === 0) {
       console.log('⚠️ No emails found in CSV - this will deactivate ALL students!');
