@@ -32,15 +32,18 @@ Scan2Go revolutionizes the meal verification process by:
 
 ### QR Code Scanning Interface
 <!-- Add screenshot of QR scanning interface here -->
-*[Space for QR scanning screenshot]*
+<img width="1280" height="759" alt="QRScanning" src="https://github.com/user-attachments/assets/c638abe3-5ec7-4bb5-a799-fe664851d018" />
+
 
 ### Student Dashboard with QR Code
 <!-- Add screenshot of student dashboard showing QR code here -->
-*[Space for student dashboard QR code screenshot]*
+<img width="1280" height="759" alt="Student_QR" src="https://github.com/user-attachments/assets/fcb1b839-f737-461e-8490-5248c04237bd" />
+
 
 ### Verified Student Confirmation
 <!-- Add screenshot of successful verification here -->
-*[Space for verified student confirmation screenshot]*
+<img width="1280" height="759" alt="SuccessfullStudentVerification" src="https://github.com/user-attachments/assets/bd3b0c06-e60e-4be7-a851-d3a91f38d151" />
+
 
 ## 🎯 Features
 
