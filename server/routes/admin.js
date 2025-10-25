@@ -35,7 +35,7 @@ router.post('/upload-csv', auth, requireAdmin, upload.single('csvFile'), async (
     const results = [];
     const errors = [];
 
-    // Parse CSV file from memory buffer
+    // Parse CSV file from memory buffer using proper CSV parsing
     const csvData = req.file.buffer.toString('utf8');
     const lines = csvData.split('\n').filter(line => line.trim());
     
@@ -43,13 +43,35 @@ router.post('/upload-csv', auth, requireAdmin, upload.single('csvFile'), async (
       return res.status(400).json({ message: 'CSV file is empty' });
     }
     
-    // Parse header row
-    const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
+    // Parse header row with proper CSV parsing
+    const parseCSVLine = (line) => {
+      const result = [];
+      let current = '';
+      let inQuotes = false;
+      
+      for (let i = 0; i < line.length; i++) {
+        const char = line[i];
+        
+        if (char === '"') {
+          inQuotes = !inQuotes;
+        } else if (char === ',' && !inQuotes) {
+          result.push(current.trim());
+          current = '';
+        } else {
+          current += char;
+        }
+      }
+      
+      result.push(current.trim());
+      return result;
+    };
+    
+    const headers = parseCSVLine(lines[0]);
     console.log('📋 CSV Headers:', headers);
     
     // Parse data rows
     for (let i = 1; i < lines.length; i++) {
-      const values = lines[i].split(',').map(v => v.trim().replace(/"/g, ''));
+      const values = parseCSVLine(lines[i]);
       const row = {};
       
       headers.forEach((header, index) => {
@@ -60,6 +82,7 @@ router.post('/upload-csv', auth, requireAdmin, upload.single('csvFile'), async (
     }
     
     console.log(`📊 Parsed ${results.length} rows from CSV`);
+    console.log('📋 Sample parsed data:', results.slice(0, 2));
 
     // Process each row
     const processedStudents = [];
@@ -194,6 +217,12 @@ router.post('/upload-csv', auth, requireAdmin, upload.single('csvFile'), async (
     }).filter(Boolean);
     
     console.log(`📧 CSV emails to keep active:`, csvEmails);
+    console.log(`📊 Total emails found in CSV: ${csvEmails.length}`);
+    
+    if (csvEmails.length === 0) {
+      console.log('⚠️ No emails found in CSV - this will deactivate ALL students!');
+      console.log('📋 Available row keys:', Object.keys(results[0] || {}));
+    }
     
     const deactivateResult = await Student.updateMany(
       { 
