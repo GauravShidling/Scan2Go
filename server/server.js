@@ -35,9 +35,30 @@ const allowedOrigins = process.env.NODE_ENV === 'production'
   : /^http:\/\/localhost:\d+$/;
 
 app.use(cors({
-  origin: allowedOrigins,
-  credentials: true
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    if (process.env.NODE_ENV === 'production') {
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+    } else {
+      // Development: allow localhost
+      if (/^http:\/\/localhost:\d+$/.test(origin)) {
+        return callback(null, true);
+      }
+    }
+    
+    return callback(new Error('Not allowed by CORS'));
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Origin', 'X-Requested-With', 'Accept']
 }));
+
+// Handle preflight requests
+app.options('*', cors());
 
 // Body parsing middleware
 app.use(express.json({ limit: '10mb' }));
