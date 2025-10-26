@@ -27,6 +27,9 @@ const upload = multer({
 
 // Upload and process CSV
 router.post('/upload-csv', auth, requireAdmin, upload.single('csvFile'), async (req, res) => {
+  const mongoose = require('mongoose');
+  const session = await mongoose.startSession();
+  
   try {
     if (!req.file) {
       return res.status(400).json({ message: 'No CSV file uploaded' });
@@ -91,9 +94,18 @@ router.post('/upload-csv', auth, requireAdmin, upload.single('csvFile'), async (
     console.log('- Sample emails found:', results.map(r => r['Email Address']).slice(0, 5));
     console.log('- All emails valid:', results.every(r => r['Email Address'] && r['Email Address'].includes('@')));
 
-    // Process each row
+    // Start transaction
+    await session.startTransaction();
+    console.log(`🔄 Transaction started - Session ID: ${session.id}`);
+    
+    // Test database connection
+    const connectionTest = await Student.countDocuments({}).session(session);
+    console.log(`🔍 Database connection test - Total students in DB: ${connectionTest}`);
+
+    // Process in batches to avoid timeout
+    const BATCH_SIZE = 20;
     const processedStudents = [];
-    const vendors = await Vendor.find({ isActive: true });
+    const vendors = await Vendor.find({ isActive: true }).session(session);
     const vendorMap = new Map();
     
     // Create multiple mappings for each vendor (with and without spaces, different cases)
@@ -104,21 +116,48 @@ router.post('/upload-csv', auth, requireAdmin, upload.single('csvFile'), async (
       vendorMap.set(cleanName.replace(/\s+/g, ''), vendor._id);
     });
 
-    console.log(`📊 Processing ${results.length} rows from CSV`);
+    console.log(`📊 Processing ${results.length} rows from CSV in batches of ${BATCH_SIZE}`);
     console.log('Available vendors:', vendors.map(v => v.name));
+    console.log('📋 CSV Headers detected:', headers);
 
+    // Process all records in a single transaction to ensure consistency
+    console.log(`🔄 Processing ${results.length} rows in single transaction`);
+    
+    // Add progress logging for large files
+    const progressInterval = results.length > 20 ? Math.floor(results.length / 10) : results.length;
+    
     for (let i = 0; i < results.length; i++) {
+      // Log progress for large files
+      if (i > 0 && i % progressInterval === 0) {
+        console.log(`📊 Progress: ${i}/${results.length} rows processed (${Math.round((i/results.length)*100)}%)`);
+      }
       const row = results[i];
+      
       try {
         console.log(`📝 Processing row ${i + 1}:`, row);
         
-        // Map your headers to expected fields
+        // Map your headers to expected fields - try multiple variations
+        const possibleNameHeaders = ['Full Name', 'Name', 'name', 'full_name', 'FullName'];
+        const possibleEmailHeaders = ['Email Address', 'Email', 'email', 'EmailAddress', 'email_address'];
+        const possibleBatchHeaders = ['Batch', 'batch', 'Roll Number', 'roll_number', 'RollNumber'];
+        const possibleVendorHeaders = ['Vendor', 'vendor', 'Vendor Name', 'vendor_name'];
+        const possibleLocationHeaders = ['Hostel :', 'Hostel', 'hostel', 'Location', 'location'];
+        
+        const findHeader = (possibleHeaders) => {
+          for (const header of possibleHeaders) {
+            if (headers.includes(header)) {
+              return header;
+            }
+          }
+          return possibleHeaders[0]; // fallback to first option
+        };
+        
         const studentData = {
-          name: row['Full Name'],
-          email: row['Email Address'],
-          rollNumber: row['Batch'],
-          vendor: row['Vendor'],
-          vendorLocation: row['Hostel :']
+          name: row[findHeader(possibleNameHeaders)],
+          email: row[findHeader(possibleEmailHeaders)],
+          rollNumber: row[findHeader(possibleBatchHeaders)],
+          vendor: row[findHeader(possibleVendorHeaders)],
+          vendorLocation: row[findHeader(possibleLocationHeaders)]
         };
         
         console.log(`📋 Mapped data:`, studentData);
@@ -147,7 +186,7 @@ router.post('/upload-csv', auth, requireAdmin, upload.single('csvFile'), async (
           // Try to find vendor by partial name match (case insensitive)
           const existingVendor = await Vendor.findOne({
             name: { $regex: new RegExp(cleanVendorName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') }
-          });
+          }).session(session);
           
           if (existingVendor) {
             vendorId = existingVendor._id;
@@ -159,12 +198,21 @@ router.post('/upload-csv', auth, requireAdmin, upload.single('csvFile'), async (
               location: studentData.vendorLocation || 'TBD',
               description: `Auto-created from CSV import`
             });
-            await newVendor.save();
+            await newVendor.save({ session });
             vendorId = newVendor._id;
             vendorMap.set(cleanVendorName.toLowerCase(), vendorId);
             console.log(`Created new vendor: ${cleanVendorName}`);
           }
         }
+        
+        // CRITICAL: Verify vendorId is valid
+        if (!vendorId) {
+          console.log(`❌ CRITICAL ERROR: No vendor ID found for student ${studentData.name}!`);
+          errors.push(`Row ${i + 2}: No vendor found for ${studentData.vendor}`);
+          continue;
+        }
+        
+        console.log(`🔍 DEBUG: Vendor ID for ${studentData.name}: ${vendorId}`);
 
         // Check if student exists
         let student = await Student.findOne({ 
@@ -172,20 +220,35 @@ router.post('/upload-csv', auth, requireAdmin, upload.single('csvFile'), async (
             { email: studentData.email },
             { rollNumber: studentData.rollNumber }
           ]
-        });
+        }).session(session);
 
         if (student) {
           // Update existing student
+          console.log(`🔄 Updating existing student: ${student.name} (${student.email})`);
+          console.log(`   - Current isActive: ${student.isActive}`);
+          console.log(`   - Setting isActive to: true`);
+          
           student.name = studentData.name;
           student.rollNumber = studentData.rollNumber;
           student.vendor = vendorId;
           student.vendorLocation = studentData.vendorLocation || 'TBD';
           student.isActive = true;
           student.updatedAt = new Date();
-          await student.save();
-          console.log(`✅ Updated student: ${student.name}`);
+          
+          const savedStudent = await student.save({ session });
+          console.log(`✅ Updated student: ${savedStudent.name} - isActive: ${savedStudent.isActive}`);
+          
+          // CRITICAL: Verify the student is actually active in database
+          const verifyStudent = await Student.findById(savedStudent._id).session(session);
+          console.log(`🔍 VERIFICATION: Student ${verifyStudent.name} - isActive: ${verifyStudent.isActive}`);
+          
+          if (!verifyStudent.isActive) {
+            console.log(`❌ CRITICAL ERROR: Student ${verifyStudent.name} is NOT active after save!`);
+          }
         } else {
           // Create new student
+          console.log(`🆕 Creating new student: ${studentData.name} (${studentData.email})`);
+          
           student = new Student({
             name: studentData.name,
             email: studentData.email,
@@ -194,8 +257,26 @@ router.post('/upload-csv', auth, requireAdmin, upload.single('csvFile'), async (
             vendorLocation: studentData.vendorLocation || 'TBD',
             isActive: true
           });
-          await student.save();
-          console.log(`✅ Created student: ${student.name}`);
+          
+          // DEBUG: Check student object before save
+          console.log(`🔍 DEBUG: Student object before save:`, {
+            name: student.name,
+            email: student.email,
+            isActive: student.isActive,
+            vendor: student.vendor
+          });
+          
+          const savedStudent = await student.save({ session });
+          console.log(`✅ Created student: ${savedStudent.name} - isActive: ${savedStudent.isActive}`);
+          
+          // CRITICAL: Verify the student is actually active in database
+          const verifyStudent = await Student.findById(savedStudent._id).session(session);
+          console.log(`🔍 VERIFICATION: Student ${verifyStudent.name} - isActive: ${verifyStudent.isActive}`);
+          
+          if (!verifyStudent.isActive) {
+            console.log(`❌ CRITICAL ERROR: Student ${verifyStudent.name} is NOT active after save!`);
+            console.log(`🔍 DEBUG: Full student object:`, verifyStudent);
+          }
         }
 
         processedStudents.push({
@@ -207,58 +288,59 @@ router.post('/upload-csv', auth, requireAdmin, upload.single('csvFile'), async (
         });
 
       } catch (error) {
+        console.error(`❌ Error processing row ${i + 1}:`, error);
         errors.push(`Row ${i + 2}: ${error.message}`);
       }
     }
+    
+    console.log(`✅ All ${results.length} rows processed in single transaction`);
 
     // Deactivate students not in the CSV
-    const csvEmails = results.map(row => {
-      const studentData = {
-        name: row['Full Name'],
-        email: row['Email Address'],
-        rollNumber: row['Batch'],
-        vendor: row['Vendor'],
-        vendorLocation: row['Hostel :']
-      };
-      return studentData.email;
-    }).filter(Boolean);
+    console.log('🔍 Email Extraction Debug:');
+    console.log('- Available headers:', headers);
+    console.log('- Sample row keys:', Object.keys(results[0] || {}));
+    console.log('- Sample row data:', results[0]);
+    
+    // Try multiple possible email header variations
+    const possibleEmailHeaders = ['Email Address', 'Email', 'email', 'EmailAddress', 'email_address'];
+    let emailHeader = null;
+    
+    for (const header of possibleEmailHeaders) {
+      if (headers.includes(header)) {
+        emailHeader = header;
+        console.log(`✅ Found email header: "${header}"`);
+        break;
+      }
+    }
+    
+    if (!emailHeader) {
+      console.log('❌ No email header found! Available headers:', headers);
+      console.log('⚠️ Skipping deactivation logic to prevent data loss');
+    }
+    
+    const csvEmails = emailHeader ? results.map(row => {
+      const email = row[emailHeader];
+      return email ? email.trim() : null;
+    }).filter(Boolean) : [];
     
     console.log(`📧 CSV emails to keep active:`, csvEmails.slice(0, 5));
     console.log(`📊 Total emails found in CSV: ${csvEmails.length}`);
     
-    // Debug email extraction
-    console.log('🔍 Email Extraction Debug:');
-    console.log('- Raw email extraction test:', results.slice(0, 3).map(row => ({
-      raw: row['Email Address'],
-      processed: row['Email Address']?.trim()
-    })));
-    
     if (csvEmails.length === 0) {
-      console.log('⚠️ CRITICAL: No emails found in CSV - this will deactivate ALL students!');
+      console.log('⚠️ CRITICAL: No emails found in CSV - skipping deactivation to prevent data loss!');
       console.log('📋 Available row keys:', Object.keys(results[0] || {}));
       console.log('📋 Sample row data:', results[0]);
     } else {
       console.log('✅ Email extraction working - students in CSV will be kept active');
     }
     
-    const deactivateResult = await Student.updateMany(
-      { 
-        email: { $nin: csvEmails },
-        isActive: true 
-      },
-      { 
-        isActive: false,
-        updatedAt: new Date()
-      }
-    );
-    
-    console.log(`❌ Deactivated ${deactivateResult.modifiedCount} students not in CSV`);
+    // NOTE: Deactivation moved to AFTER transaction commit to prevent conflicts
 
     // Clean up any students with invalid vendor references
     try {
       const invalidStudents = await Student.find({
         vendor: { $type: 'string' }
-      });
+      }).session(session);
       
       if (invalidStudents.length > 0) {
         console.log(`Found ${invalidStudents.length} students with invalid vendor references, cleaning up...`);
@@ -267,11 +349,11 @@ router.post('/upload-csv', auth, requireAdmin, upload.single('csvFile'), async (
           // Find the correct vendor by name
           const vendor = await Vendor.findOne({ 
             name: { $regex: student.vendor, $options: 'i' } 
-          });
+          }).session(session);
           
           if (vendor) {
             student.vendor = vendor._id;
-            await student.save();
+            await student.save({ session });
             console.log(`Fixed vendor reference for student: ${student.name}`);
           } else {
             console.log(`Could not find vendor for student: ${student.name}, vendor: ${student.vendor}`);
@@ -282,16 +364,123 @@ router.post('/upload-csv', auth, requireAdmin, upload.single('csvFile'), async (
       console.error('Error during cleanup:', cleanupError);
     }
 
+    // Commit final transaction
+    await session.commitTransaction();
+    console.log(`✅ Transaction committed successfully`);
+
+    // Wait a moment for database to be consistent
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    // CRITICAL: Immediately check database state after commit
+    console.log(`🔍 CRITICAL CHECK: Database state immediately after commit`);
+    
+    // Force database refresh by ending session
+    await session.endSession();
+    console.log(`🔄 Session ended, checking database without session`);
+    
+    const immediateActiveCount = await Student.countDocuments({ isActive: true });
+    console.log(`   - Immediate active count: ${immediateActiveCount}`);
+    
+    // NOW perform deactivation AFTER transaction commit
+    let deactivateResult = { modifiedCount: 0 };
+    
+    if (csvEmails.length > 0) {
+      console.log(`🔍 Deactivation Debug (AFTER commit):`);
+      console.log(`   - CSV emails count: ${csvEmails.length}`);
+      console.log(`   - Sample CSV emails: ${csvEmails.slice(0, 3)}`);
+      
+      // Check current active students before deactivation
+      const activeStudentsBeforeDeactivation = await Student.countDocuments({ isActive: true });
+      console.log(`   - Active students before deactivation: ${activeStudentsBeforeDeactivation}`);
+      
+      // Check how many students will be deactivated
+      const studentsToDeactivate = await Student.countDocuments({
+        email: { $nin: csvEmails },
+        isActive: true
+      });
+      console.log(`   - Students that will be deactivated: ${studentsToDeactivate}`);
+      
+      deactivateResult = await Student.updateMany(
+        { 
+          email: { $nin: csvEmails },
+          isActive: true 
+        },
+        { 
+          isActive: false,
+          updatedAt: new Date()
+        }
+      );
+      
+      console.log(`❌ Deactivated ${deactivateResult.modifiedCount} students not in CSV`);
+      
+      // Verify deactivation worked
+      const activeStudentsAfterDeactivation = await Student.countDocuments({ isActive: true });
+      console.log(`   - Active students after deactivation: ${activeStudentsAfterDeactivation}`);
+      
+      if (deactivateResult.modifiedCount !== studentsToDeactivate) {
+        console.log(`⚠️ WARNING: Expected to deactivate ${studentsToDeactivate}, but deactivated ${deactivateResult.modifiedCount}`);
+      }
+    } else {
+      console.log('⚠️ Skipping deactivation - no valid emails found in CSV');
+    }
+    
+    // Check if our processed students are actually in the database
+    const processedEmails = processedStudents.map(s => s.email);
+    const immediateProcessedCount = await Student.countDocuments({
+      email: { $in: processedEmails },
+      isActive: true
+    });
+    console.log(`   - Immediate processed students active: ${immediateProcessedCount}/${processedStudents.length}`);
+    
+    if (immediateProcessedCount !== processedStudents.length) {
+      console.log(`❌ CRITICAL ISSUE: Not all processed students are active immediately after commit!`);
+      
+      // Check what happened to the missing students
+      const missingStudents = await Student.find({
+        email: { $in: processedEmails },
+        isActive: false
+      }).select('name email isActive createdAt updatedAt');
+      
+      console.log(`❌ Missing students (inactive):`, missingStudents.map(s => 
+        `${s.name} (${s.email}) - Created: ${s.createdAt}, Updated: ${s.updatedAt}`
+      ));
+    }
+
     // Get final counts
     const totalActiveStudents = await Student.countDocuments({ isActive: true });
     const totalInactiveStudents = await Student.countDocuments({ isActive: false });
+    const activeProcessedStudents = await Student.countDocuments({
+      email: { $in: processedEmails },
+      isActive: true
+    });
+    
+    // Additional verification: Check specific students
+    const sampleProcessedStudents = processedStudents.slice(0, 5);
+    console.log(`🔍 Verification - Sample processed students:`);
+    for (const student of sampleProcessedStudents) {
+      const dbStudent = await Student.findOne({ email: student.email });
+      console.log(`- ${student.name} (${student.email}): Active=${dbStudent?.isActive}, Vendor=${dbStudent?.vendor}`);
+    }
     
     console.log(`✅ CSV Processing Complete:`);
     console.log(`- Total CSV rows: ${results.length}`);
     console.log(`- Processed students: ${processedStudents.length}`);
+    console.log(`- Processed students that are active: ${activeProcessedStudents}`);
     console.log(`- Errors: ${errors.length}`);
     console.log(`- Total active students: ${totalActiveStudents}`);
     console.log(`- Total inactive students: ${totalInactiveStudents}`);
+    
+    if (activeProcessedStudents !== processedStudents.length) {
+      console.log(`⚠️ WARNING: Not all processed students are active! Expected ${processedStudents.length}, found ${activeProcessedStudents}`);
+      
+      // Find which students are not active
+      const inactiveProcessedStudents = await Student.find({
+        email: { $in: processedEmails },
+        isActive: false
+      }).select('name email isActive');
+      
+      console.log(`❌ Inactive processed students:`, inactiveProcessedStudents.map(s => `${s.name} (${s.email})`));
+    }
 
     res.json({
       message: 'CSV processed successfully',
@@ -307,7 +496,15 @@ router.post('/upload-csv', auth, requireAdmin, upload.single('csvFile'), async (
 
   } catch (error) {
     console.error('CSV upload error:', error);
+    await session.abortTransaction();
+    await session.endSession();
     res.status(500).json({ message: 'Server error during CSV processing' });
+  } finally {
+    // Session is already ended in the main flow, only end if not already ended
+    if (session.inTransaction()) {
+      await session.abortTransaction();
+      await session.endSession();
+    }
   }
 });
 
